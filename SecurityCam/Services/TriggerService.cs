@@ -21,21 +21,19 @@ namespace SecurityCam.Services
         
         public bool ShouldTrigger(double diff)
         {
-            var result = ShouldTriggerInternal(diff);
-            var msg = $"Diff: {Math.Round(diff, 5).ToString().PadRight(8, '0')} - Streak: {_streak} - Requirement: {_requirement} - ShouldTrigger: {result}";
-            _log.Write(result ? LogLevel.Info : LogLevel.Debug, msg);
-            return result;
-        }
-        
-        private bool ShouldTriggerInternal(double diff)
-        {
             if (diff > _config.Threshold)
             {
+                _log.Write(LogLevel.Debug, $"Over Threshold - Diff: {diff} - Threshold: {_config.Threshold}");
+                
                 if (++_streak < _requirement) 
                     return false;
                 
+                
+                _log.Write(LogLevel.Info, $"Triggered - Streak: {_streak} - Requirement: {_requirement}");
+                
                 _streak = 0;
                 _requirement++;
+                
                 return true;
             }
 

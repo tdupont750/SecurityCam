@@ -71,7 +71,7 @@ namespace SecurityCam
                 if (trigger.ShouldTrigger(diff))
                 {
                     var path = files.Write(image);
-                    mail.Send(path);
+                    mail.Send(path, cancelSource.Token);
                 }
 
                 oldDev = newDev;

@@ -1,6 +1,10 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using MailKit.Net.Smtp;
+using MailKit.Security;
 using MimeKit;
 using SecurityCam.Configuration;
 using SecurityCam.Diagnostics;
@@ -9,39 +13,71 @@ namespace SecurityCam.Services
 {
     public class MailService : IDisposable
     {
-        private readonly Lazy<SmtpClient> _smpt;
         private readonly MailConfig _config;
         private readonly ILog _log;
+        
+        private SmtpClient _smtpClient;
+        private Task _previousSend = Task.CompletedTask;
+        private int _sendCount;
 
         public MailService(MailConfig config, ILog log)
         {
             _config = config;
             _log = log;
-
-            _smpt = new Lazy<SmtpClient>(() =>
-            {
-                var client = new SmtpClient();
-                client.Connect(config.Smtp, config.Port);
-                client.AuthenticationMechanisms.Remove("XOAUTH2");
-                client.Authenticate(config.From, config.Password);
-                return client;
-            });
         }
 
         public void Dispose()
         {
-            if (!_smpt.IsValueCreated) return;
-            _smpt.Value.Disconnect(true);
-            _smpt.Value.Dispose();
+            _previousSend.Wait();
+            
+            EnsureDisposeSmtpClient();
         }
 
-        public void Send(string fileName)
+        public void Send(string fileName, CancellationToken cancelToken)
         {
             if (!_config.Enabled)
                 return;
+
+            var sendCount = Interlocked.Increment(ref _sendCount);
+            _log.Write(LogLevel.Info, $"Send Start - SendCount: {sendCount}");
             
-            _log.Write(LogLevel.Info, "Sending email");
+            // Don't leave the main thread, it will mess up the camera window renderer
+            _previousSend.Wait(cancelToken);
             
+            var mime = CreateMimeMessage(fileName);
+            _previousSend = SendAsync(mime, sendCount, cancelToken);
+        }
+
+        private async Task SendAsync(MimeMessage mime, int sendCount, CancellationToken cancelToken)
+        {
+            var sw = Stopwatch.StartNew();
+            
+            try
+            {
+                await EnsureCreateSmtpClientAsync(cancelToken);
+                await _smtpClient.SendAsync(mime, cancelToken);
+                _log.Write(LogLevel.Info, $"Send Complete - SendCount: {sendCount} - Elapsed: {sw.ElapsedMilliseconds}ms");
+                return;
+            }
+            catch (TaskCanceledException) when (cancelToken.IsCancellationRequested)
+            {
+                _log.Write(LogLevel.Debug, $"Send Cancelled - SendCount: {sendCount} - Elapsed: {sw.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                _log.Write(LogLevel.Error, $"Send Failure - SendCount: {sendCount} - Elapsed: {sw.ElapsedMilliseconds}ms - Ex: {ex}");
+            }
+            finally
+            {
+                sw.Stop();
+            }
+
+            // Exited due to exception, dispose SmtpClient
+            EnsureDisposeSmtpClient();
+        }
+
+        private MimeMessage CreateMimeMessage(string fileName)
+        {
             var body = new TextPart("plain")
             {
                 Text = _config.Body
@@ -57,15 +93,41 @@ namespace SecurityCam.Services
 
             var multipart = new Multipart("mixed") {body, attachment};
             
-            var mime = new MimeMessage
+            return new MimeMessage
             {
                 To = { new MailboxAddress(_config.To)},
                 From = { new MailboxAddress(_config.From)},
                 Subject = _config.Subject,
                 Body = multipart
             };
+        }
 
-            _smpt.Value.Send(mime);   
+        private async Task EnsureCreateSmtpClientAsync(CancellationToken cancelToken)
+        {
+            if (_smtpClient != null)
+                return;
+
+            _smtpClient = new SmtpClient();
+            await _smtpClient.ConnectAsync(_config.Smtp, _config.Port, SecureSocketOptions.StartTls, cancelToken);
+
+            _smtpClient.AuthenticationMechanisms.Remove("XOAUTH2");
+            await _smtpClient.AuthenticateAsync(_config.From, _config.Password, cancelToken);
+        }
+        
+        private void EnsureDisposeSmtpClient()
+        {
+            if (_smtpClient == null)
+                return;
+            
+            try
+            {
+                _smtpClient.Dispose();
+                _smtpClient = null;
+            }
+            catch (Exception ex)
+            {
+                _log.Write(LogLevel.Error, $"SMTP Dispose Failure - Ex: {ex}");
+            }
         }
     }
 }

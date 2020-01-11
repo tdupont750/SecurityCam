@@ -18,32 +18,34 @@ namespace SecurityCam.Services
             _config = config;
             _cancelSource = cancelSource;
             
-            if (config.Render)
-                _window = new Window("SecurityCam");
-            
             _capture = VideoCapture.FromCamera(config.Index);
             _capture.Fps = config.Fps;
             _capture.FrameHeight = config.Height;
-            _capture.FrameWidth = config.Width;
+            _capture.FrameWidth = config.Width; 
+            
+            if (config.Render)
+                _window = new Window("SecurityCam");
         }
         
         public void Dispose()
         {
             _window?.Dispose();
+            _capture.Release();
             _capture.Dispose();
         }
         
-        public Task DelayAsync(CancellationToken cancelToken)
+        public void Delay(CancellationToken cancelToken)
         {
             if (_window == null)
-                return Task.Delay(_config.PumpMs, cancelToken);
+            {
+                Task.Delay(_config.PumpMs, cancelToken).Wait(cancelToken);
+                return;
+            }
             
             var key = Cv2.WaitKey(_config.PumpMs);
 
             if (key == (int) ConsoleKey.Escape)
                 _cancelSource.Cancel();
-
-            return Task.CompletedTask;
         }
 
         public bool TryRead(Mat image)
@@ -51,7 +53,7 @@ namespace SecurityCam.Services
             if (!_capture.Read(image))
                 return false;
 
-            _window?.ShowImage(image);
+            _window?.ShowImage(image);  
             return true;
         }
 

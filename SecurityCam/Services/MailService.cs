@@ -45,7 +45,7 @@ namespace SecurityCam.Services
             _previousSend.Wait(cancelToken);
             
             var mime = CreateMimeMessage(fileName);
-            _previousSend = SendAsync(mime, sendCount, cancelToken);
+            _previousSend = Task.Run(() => SendAsync(mime, sendCount, cancelToken), cancelToken);
         }
 
         private async Task SendAsync(MimeMessage mime, int sendCount, CancellationToken cancelToken)

@@ -13,7 +13,7 @@ namespace SecurityCam
 {
     public static class Program
     {
-        public static async Task Main(string[] args)
+        public static void Main(string[] args)
         {            
             var cancelSource = new CancellationTokenSource();
             Console.CancelKeyPress += (o, e) => cancelSource.Cancel();
@@ -30,21 +30,22 @@ namespace SecurityCam
             {
                 try
                 {
-                    await RunAsync(config, log, cancelSource);
+                    Run(config, log, cancelSource);
                 }
                 catch (TaskCanceledException) when (cancelSource.IsCancellationRequested)
                 {
                     // Ignore and exit
+                    log.Write(LogLevel.Info, "Application exiting");
                 }
                 catch (Exception ex)
                 {
                     log.Write(LogLevel.Error, ex.ToString());
-                    await Task.Delay(10000, cancelSource.Token);
+                    Task.Delay(10000, cancelSource.Token).Wait(cancelSource.Token);
                 }
             }
         }
 
-        private static async Task RunAsync(Config config, ILog log, CancellationTokenSource cancelSource)
+        private static void Run(Config config, ILog log, CancellationTokenSource cancelSource)
         {
             var trigger = new TriggerService(log, config.Trigger);
             var files = new FileService(config.Files);
@@ -60,7 +61,7 @@ namespace SecurityCam
                 
             while (!cancelSource.IsCancellationRequested)
             {
-                await camera.DelayAsync(cancelSource.Token);
+                camera.Delay(cancelSource.Token);
 
                 if (!camera.TryRead(image))
                     break;

@@ -17,9 +17,9 @@ namespace SecurityCam.Services
         
         public string Write(Mat image)
         {
+            CleanOldFiles();
             var filePath = Path.Combine(_config.Dir, $"{DateTime.Now:yyyy_MM_dd_HH_mm_ss}.png");
             image.SaveImage(filePath);
-            CleanOldFiles();
             return filePath;
         }
         
@@ -27,12 +27,11 @@ namespace SecurityCam.Services
         {
             var files = Directory
                 .GetFiles(_config.Dir)
-                .OrderBy(f => f)
+                .OrderByDescending(f => f)
                 .ToArray();
-            
-            foreach(var file in files.Skip(_config.Count))
+
+            foreach (var file in files.Skip(_config.Count))
                 File.Delete(file);
-            
         }
     }
 }
